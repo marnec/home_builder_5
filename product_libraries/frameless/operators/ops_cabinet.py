@@ -547,35 +547,227 @@ class hb_frameless_OT_select_cabinet_group(bpy.types.Operator):
 
 
 class hb_frameless_OT_adjust_multiple_cabinet_widths(bpy.types.Operator):
-    """Adjust widths of multiple selected cabinets like a calculator"""
+    """Adjust widths, offsets, and quantity of selected cabinets"""
     bl_idname = "hb_frameless.adjust_multiple_cabinet_widths"
     bl_label = "Adjust Cabinet Sizes"
-    bl_description = "Adjust the widths of multiple selected cabinets"
-    bl_options = {'UNDO'}
+    bl_description = "Adjust widths, positions, and quantity of selected cabinets"
+    bl_options = {'REGISTER', 'UNDO'}
 
     total_number_of_cabinets = 0
     number_of_equal_cabinets = 0
     total_width = 0.0
+    original_total_width = 0.0
     equal_cabinet_width = 0.0
     non_equal_cabinet_widths = 0.0
     start_x = 0.0
-    
+
+    # Gap boundaries
+    gap_left_boundary = 0.0
+    gap_right_boundary = 0.0
+    gap_width = 0.0
+    has_wall = False
+    is_back_side = False
+    wall_obj = None
+
     # For rotated cabinets (like islands)
-    cabinet_direction = None  # Unit vector along cabinet row
-    start_position = None  # World position of first cabinet
+    cabinet_direction = None
+    start_position = None
+
+    # Track quantity changes
+    _prev_quantity = 0
+    _added_cabinets = []
+
+    left_offset: bpy.props.FloatProperty(
+        name="Left Offset",
+        description="X Location or offset from left gap boundary",
+        subtype='DISTANCE',
+        unit='LENGTH',
+        default=0.0,
+        precision=5,
+    )  # type: ignore
+
+    right_offset: bpy.props.FloatProperty(
+        name="Right Offset",
+        description="Offset from right gap boundary",
+        subtype='DISTANCE',
+        unit='LENGTH',
+        default=0.0,
+        precision=5,
+    )  # type: ignore
+
+    fill_gap: bpy.props.BoolProperty(
+        name="Fill Gap",
+        description="Redistribute cabinet widths to fill available space after offsets",
+        default=False,
+    )  # type: ignore
+
+    quantity: bpy.props.IntProperty(
+        name="Quantity",
+        description="Number of cabinets",
+        default=2,
+        min=1,
+    )  # type: ignore
 
     @classmethod
     def poll(cls, context):
-        # Check if at least one cabinet is selected
         for obj in context.selected_objects:
             cabinet_bp = hb_utils.get_cabinet_bp(obj)
             if cabinet_bp:
                 return True
         return False
 
+    def get_cab_x_range(self, cab_obj):
+        """Get (x_start, x_end) for a cabinet accounting for back-side rotation."""
+        cage = hb_types.GeoNodeCage(cab_obj)
+        dim_x = cage.get_input('Dim X')
+        is_back = (abs(cab_obj.rotation_euler.z - math.pi) < 0.1 or
+                   abs(cab_obj.rotation_euler.z + math.pi) < 0.1)
+        if is_back:
+            return (cab_obj.location.x - dim_x, cab_obj.location.x)
+        else:
+            return (cab_obj.location.x, cab_obj.location.x + dim_x)
+
+    def calculate_gap_boundaries(self, context, wall_obj, cabinet_objs):
+        """Find the available gap boundaries around the selected cabinets."""
+        wall_node = hb_types.GeoNodeWall(wall_obj)
+        wall_length = wall_node.get_input('Length')
+
+        our_ranges = [self.get_cab_x_range(c) for c in cabinet_objs]
+        our_min = min(r[0] for r in our_ranges)
+        our_max = max(r[1] for r in our_ranges)
+
+        cabinet_set = set(cabinet_objs)
+        gap_left = 0.0
+        gap_right = wall_length
+
+        for obj in wall_obj.children:
+            if not obj.get('IS_FRAMELESS_CABINET_CAGE'):
+                continue
+            if obj in cabinet_set:
+                continue
+            obj_is_back = (abs(obj.rotation_euler.z - math.pi) < 0.1 or
+                           abs(obj.rotation_euler.z + math.pi) < 0.1)
+            if obj_is_back != self.is_back_side:
+                continue
+            x_start, x_end = self.get_cab_x_range(obj)
+            if x_end <= our_min + 0.001:
+                gap_left = max(gap_left, x_end)
+            if x_start >= our_max - 0.001:
+                gap_right = min(gap_right, x_start)
+
+        return gap_left, gap_right
+
+    def duplicate_cabinet(self, context, source_obj):
+        """Duplicate a cabinet cage and all its children with full hierarchy."""
+        # Store original state
+        old_selected = [o.name for o in context.selected_objects]
+        old_active = context.view_layer.objects.active.name if context.view_layer.objects.active else None
+
+        # Collect all objects in the hierarchy
+        all_objs = [source_obj] + list(source_obj.children_recursive)
+
+        # Temporarily unhide all objects so they can be selected for duplication
+        hidden_objs = {}
+        for obj in all_objs:
+            if obj.hide_viewport:
+                hidden_objs[obj.name] = True
+                obj.hide_viewport = False
+
+        # Select only source hierarchy
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in all_objs:
+            obj.select_set(True)
+        context.view_layer.objects.active = source_obj
+
+        # Duplicate with full copy (not linked)
+        bpy.ops.object.duplicate(linked=False)
+
+        # The duplicated objects are now selected
+        new_objs = list(context.selected_objects)
+
+        # Find the new cabinet root (the one that was active)
+        new_cabinet = context.view_layer.objects.active
+
+        # Restore hidden state on original objects
+        for obj_name in hidden_objs:
+            if obj_name in bpy.data.objects:
+                bpy.data.objects[obj_name].hide_viewport = True
+
+        # Apply same hidden state to duplicated objects
+        for new_obj in new_objs:
+            # Match hidden state: find the original this was copied from
+            # Blender names duplicates as "Name.001", "Name.002", etc.
+            base_name = new_obj.name.rsplit('.', 1)[0]
+            if base_name in hidden_objs:
+                new_obj.hide_viewport = True
+
+        # Restore selection
+        bpy.ops.object.select_all(action='DESELECT')
+        for name in old_selected:
+            if name in bpy.data.objects:
+                bpy.data.objects[name].select_set(True)
+        if old_active and old_active in bpy.data.objects:
+            context.view_layer.objects.active = bpy.data.objects[old_active]
+
+        return new_cabinet
+
+    def remove_cabinet_from_scene(self, cab_obj):
+        """Remove a cabinet and all its children from the scene."""
+        children = list(cab_obj.children_recursive)
+        for child in reversed(children):
+            bpy.data.objects.remove(child, do_unlink=True)
+        bpy.data.objects.remove(cab_obj, do_unlink=True)
+
+    def handle_quantity_change(self, context):
+        """Add or remove cabinets to match the quantity property."""
+        props = context.scene.hb_frameless
+
+        # Add cabinets
+        while len(props.calculator_cabinets) < self.quantity:
+            last = props.calculator_cabinets[-1]
+            if not last.cabinet_obj:
+                break
+            new_obj = self.duplicate_cabinet(context, last.cabinet_obj)
+            if not new_obj:
+                break
+            # Parent to same parent as source
+            new_obj.parent = last.cabinet_obj.parent
+            self._added_cabinets.append(new_obj.name)
+            cab = props.calculator_cabinets.add()
+            cab.cabinet_obj = new_obj
+            cab.is_equal = True
+            cab.cabinet_width = last.cabinet_width
+            if not self.fill_gap:
+                self.total_width += last.cabinet_width
+
+        # Remove cabinets (don't go below 1)
+        while len(props.calculator_cabinets) > self.quantity and len(props.calculator_cabinets) > 1:
+            last_idx = len(props.calculator_cabinets) - 1
+            last = props.calculator_cabinets[last_idx]
+            if last.cabinet_obj:
+                if not self.fill_gap:
+                    self.total_width -= last.cabinet_width
+                # Only remove from scene if it was added during this session
+                if last.cabinet_obj.name in self._added_cabinets:
+                    self._added_cabinets.remove(last.cabinet_obj.name)
+                    self.remove_cabinet_from_scene(last.cabinet_obj)
+                else:
+                    self.remove_cabinet_from_scene(last.cabinet_obj)
+            props.calculator_cabinets.remove(last_idx)
+
+        self.total_number_of_cabinets = len(props.calculator_cabinets)
+
     def check(self, context):
         props = context.scene.hb_frameless
-        
+
+        # Handle quantity changes
+        if len(props.calculator_cabinets) != self.quantity:
+            self.handle_quantity_change(context)
+
+        # Recalculate total width for fill mode
+        if self.fill_gap and self.has_wall:
+            self.total_width = max(0.01, self.gap_width - self.left_offset - self.right_offset)
+
         # Calculate Non Equal Cabinet Widths and Number of Equal Cabinets
         self.number_of_equal_cabinets = 0
         self.non_equal_cabinet_widths = 0.0
@@ -584,70 +776,101 @@ class hb_frameless_OT_adjust_multiple_cabinet_widths(bpy.types.Operator):
                 self.number_of_equal_cabinets += 1
             else:
                 self.non_equal_cabinet_widths += cabinet.cabinet_width
-        
+
         # Calculate Width for All Equal Cabinets
         if self.number_of_equal_cabinets > 0:
             self.equal_cabinet_width = (self.total_width - self.non_equal_cabinet_widths) / self.number_of_equal_cabinets
-        
-        # For Each Cabinet Set Location and Width Value
-        # Position along the cabinet direction vector (handles rotation)
+
+        # Calculate effective start position
+        if self.has_wall:
+            if self.fill_gap:
+                # Fill mode: offsets are relative to gap boundaries
+                if self.is_back_side:
+                    effective_start_x = self.gap_right_boundary - self.right_offset
+                else:
+                    effective_start_x = self.gap_left_boundary + self.left_offset
+            else:
+                # Non-fill mode: left_offset is absolute X location
+                if self.is_back_side:
+                    effective_start_x = self.left_offset + self.total_width
+                else:
+                    effective_start_x = self.left_offset
+        else:
+            effective_start_x = self.start_x
+
+        # Position cabinets
         current_offset = 0.0
         for cabinet in props.calculator_cabinets:
             if cabinet.cabinet_obj:
                 cabinet_cage = hb_types.GeoNodeCage(cabinet.cabinet_obj)
-                
-                # Calculate new position along direction
-                if self.start_position and self.cabinet_direction:
+                cab_width = self.equal_cabinet_width if cabinet.is_equal else cabinet.cabinet_width
+
+                if self.has_wall and self.is_back_side:
+                    # Back side: direction is -X, start from right
+                    cabinet_cage.obj.location.x = effective_start_x - current_offset
+                elif self.has_wall:
+                    # Front side: direction is +X, start from left
+                    cabinet_cage.obj.location.x = effective_start_x + current_offset
+                elif self.start_position and self.cabinet_direction:
+                    # Island/rotated: use direction vector
                     new_pos = self.start_position + self.cabinet_direction * current_offset
                     cabinet_cage.obj.location.x = new_pos.x
                     cabinet_cage.obj.location.y = new_pos.y
                 else:
-                    # Fallback for non-rotated cabinets
-                    cabinet_cage.obj.location.x = self.start_x + current_offset
-                
+                    cabinet_cage.obj.location.x = effective_start_x + current_offset
+
                 if cabinet.is_equal:
                     cabinet.cabinet_width = self.equal_cabinet_width
                     cabinet_cage.set_input("Dim X", self.equal_cabinet_width)
                 else:
                     cabinet_cage.set_input("Dim X", cabinet.cabinet_width)
-                
-                current_offset += cabinet.cabinet_width
+
+                current_offset += cab_width
                 hb_utils.run_calc_fix(context, cabinet_cage.obj)
         return True
 
     def invoke(self, context, event):
         props = context.scene.hb_frameless
-        
-        # Clear Collection
+
+        # Reset
         props.calculator_cabinets.clear()
-        
+        self._added_cabinets = []
+        self.right_offset = 0.0
+        self.fill_gap = False
+
         # Collect Cabinet Objects
         objs = []
         for obj in context.selected_objects:
             cabinet_bp = hb_utils.get_cabinet_bp(obj)
             if cabinet_bp and cabinet_bp not in objs:
                 objs.append(cabinet_bp)
-        
-        if len(objs) < 2:
-            self.report({'WARNING'}, "Select at least 2 cabinets to adjust sizes")
+
+        if len(objs) < 1:
+            self.report({'WARNING'}, "Select at least 1 cabinet to adjust sizes")
             return {'CANCELLED'}
-        
+
+        # Determine if on a wall and which side
+        first_parent = objs[0].parent
+        self.has_wall = first_parent and first_parent.get('IS_WALL_BP')
+        self.wall_obj = first_parent if self.has_wall else None
+        self.is_back_side = (abs(objs[0].rotation_euler.z - math.pi) < 0.1 or
+                             abs(objs[0].rotation_euler.z + math.pi) < 0.1)
+
         # Get cabinet direction from first cabinet's rotation
-        # Cabinet local X axis points along the cabinet row direction
         first_rot = objs[0].rotation_euler.z
         self.cabinet_direction = Vector((math.cos(first_rot), math.sin(first_rot), 0))
-        
+
         # Sort cabinets by position projected onto the cabinet direction
         def get_position_along_direction(obj):
             pos = Vector((obj.location.x, obj.location.y, 0))
             return pos.dot(self.cabinet_direction)
-        
+
         objs.sort(key=get_position_along_direction, reverse=False)
-        
-        # Store start position (world position of first cabinet)
+
+        # Store start position
         self.start_position = Vector((objs[0].location.x, objs[0].location.y, objs[0].location.z))
-        self.start_x = objs[0].location.x  # Keep for backwards compatibility
-        
+        self.start_x = objs[0].location.x
+
         # Populate Collection and Set Properties
         self.total_width = 0.0
         for index, obj in enumerate(objs):
@@ -657,10 +880,29 @@ class hb_frameless_OT_adjust_multiple_cabinet_widths(bpy.types.Operator):
             cab.is_equal = True
             cab.cabinet_width = cabinet.get_input('Dim X')
             self.total_width += cabinet.get_input('Dim X')
+
+        self.original_total_width = self.total_width
         self.total_number_of_cabinets = len(props.calculator_cabinets)
-        
+        self.quantity = self.total_number_of_cabinets
+
+        # Calculate gap boundaries if on a wall
+        if self.has_wall:
+            self.gap_left_boundary, self.gap_right_boundary = self.calculate_gap_boundaries(
+                context, self.wall_obj, objs)
+            self.gap_width = self.gap_right_boundary - self.gap_left_boundary
+
+            # Set initial X location from first cabinet's actual position
+            if self.is_back_side:
+                # Back side: rightmost location.x minus total width
+                x_ranges = [self.get_cab_x_range(o) for o in objs]
+                self.left_offset = min(r[0] for r in x_ranges)
+            else:
+                self.left_offset = objs[0].location.x
+        else:
+            self.left_offset = 0.0
+
         wm = context.window_manager
-        return wm.invoke_props_dialog(self, width=400)
+        return wm.invoke_props_dialog(self, width=450)
 
     def execute(self, context):
         return {'FINISHED'}
@@ -668,16 +910,39 @@ class hb_frameless_OT_adjust_multiple_cabinet_widths(bpy.types.Operator):
     def draw(self, context):
         props = context.scene.hb_frameless
         unit_settings = context.scene.unit_settings
-        
+
         layout = self.layout
+
+        # Quantity row
         box = layout.box()
         row = box.row()
-        row.label(text="Number of Cabinets:")
-        row.label(text=str(self.total_number_of_cabinets))
+        row.label(text="Cabinets:")
+        row.prop(self, 'quantity', text="")
+
+        # Total width
         row = box.row()
         row.label(text="Total Width:")
         row.label(text=units.unit_to_string(unit_settings, self.total_width))
-        
+
+        # Gap info and offsets (only for wall cabinets)
+        if self.has_wall:
+            row = box.row()
+            row.label(text="Available Gap:")
+            row.label(text=units.unit_to_string(unit_settings, self.gap_width))
+
+            row = box.row()
+            row.prop(self, 'fill_gap', text="Fill Available Space")
+
+            if self.fill_gap:
+                row = box.row()
+                row.prop(self, 'left_offset', text="Left Offset")
+                row.prop(self, 'right_offset', text="Right Offset")
+            else:
+                row = box.row()
+                row.prop(self, 'left_offset', text="X Location")
+
+        # Cabinet list
+        box = layout.box()
         for index, cabinet in enumerate(props.calculator_cabinets):
             row = box.row()
             row.label(text='Cabinet ' + str(index + 1))
@@ -686,6 +951,7 @@ class hb_frameless_OT_adjust_multiple_cabinet_widths(bpy.types.Operator):
                 row.label(text="Width: " + units.unit_to_string(unit_settings, cabinet.cabinet_width))
             else:
                 row.prop(cabinet, 'cabinet_width', text="Width:")
+
 
 class hb_frameless_OT_finish_interior(bpy.types.Operator):
     bl_idname = "hb_frameless.finish_interior"
