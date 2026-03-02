@@ -80,11 +80,29 @@ def split_cabinets_at_ranges(wall_obj, cabinets):
     return groups
 
 
-def gather_base_cabinets(context):
-    """Collect base cabinets grouped by wall, cage groups, and lone islands."""
+def gather_base_cabinets(context, selected_only=False):
+    """Collect base cabinets grouped by wall, cage groups, and lone islands.
+    If selected_only is True, only include cabinets that are currently selected."""
     wall_cabinets = {}
     cage_groups = []
     island_cabinets = []
+
+    # Build set of selected cabinet cages for filtering
+    selected_cabs = set()
+    if selected_only:
+        for obj in context.selected_objects:
+            if obj.get('IS_FRAMELESS_CABINET_CAGE') and obj.get('CABINET_TYPE') == 'BASE':
+                selected_cabs.add(obj)
+            # Also check if a child cage is selected (user might select a part)
+            if obj.parent and obj.parent.get('IS_FRAMELESS_CABINET_CAGE') and obj.parent.get('CABINET_TYPE') == 'BASE':
+                selected_cabs.add(obj.parent)
+            # Walk up to find cabinet cage ancestor
+            parent = obj.parent
+            while parent:
+                if parent.get('IS_FRAMELESS_CABINET_CAGE') and parent.get('CABINET_TYPE') == 'BASE':
+                    selected_cabs.add(parent)
+                    break
+                parent = parent.parent
 
     # Track cabinets that belong to cage groups so we don't double-count
     grouped_cabs = set()
@@ -95,6 +113,8 @@ def gather_base_cabinets(context):
             countertop_children = [c for c in obj.children 
                                    if (c.get('IS_FRAMELESS_CABINET_CAGE') and c.get('CABINET_TYPE') == 'BASE')
                                    or (c.get('IS_FRAMELESS_PRODUCT_CAGE') and c.get('PART_TYPE') == 'SUPPORT_FRAME')]
+            if selected_only:
+                countertop_children = [c for c in countertop_children if c in selected_cabs]
             if countertop_children:
                 cage_groups.append((obj, countertop_children))
                 for c in countertop_children:
@@ -107,6 +127,8 @@ def gather_base_cabinets(context):
         if obj.get('CABINET_TYPE') != 'BASE':
             continue
         if obj in grouped_cabs:
+            continue
+        if selected_only and obj not in selected_cabs:
             continue
 
         if obj.parent and obj.parent.get('IS_WALL_BP'):
@@ -393,17 +415,27 @@ class hb_frameless_OT_add_countertops(bpy.types.Operator):
     bl_description = "Add countertops to all base cabinets"
     bl_options = {'REGISTER', 'UNDO'}
 
+    selected_only: bpy.props.BoolProperty(
+        name="Selected Only",
+        description="Only add countertops to selected cabinets",
+        default=False
+    )  # type: ignore
+
     def execute(self, context):
-        wall_cabinets, cage_groups, island_cabinets = gather_base_cabinets(context)
+        wall_cabinets, cage_groups, island_cabinets = gather_base_cabinets(context, self.selected_only)
 
         if not wall_cabinets and not cage_groups and not island_cabinets:
-            self.report({'WARNING'}, "No base cabinets found")
+            if self.selected_only:
+                self.report({'WARNING'}, "No base cabinets selected")
+            else:
+                self.report({'WARNING'}, "No base cabinets found")
             return {'CANCELLED'}
 
-        # Remove existing countertops
-        existing = [o for o in context.scene.objects if o.get('IS_COUNTERTOP')]
-        for obj in existing:
-            bpy.data.objects.remove(obj, do_unlink=True)
+        if not self.selected_only:
+            # Remove existing countertops only when adding to all
+            existing = [o for o in context.scene.objects if o.get('IS_COUNTERTOP')]
+            for obj in existing:
+                bpy.data.objects.remove(obj, do_unlink=True)
 
         runs = build_wall_runs(wall_cabinets)
         ct_count = 0

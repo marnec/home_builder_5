@@ -2321,8 +2321,12 @@ class Frameless_Scene_Props(PropertyGroup):
 
         row = layout.row(align=True)
         row.scale_y = 1.3
-        row.operator('hb_frameless.add_countertops', text="Add Countertops", icon='MESH_PLANE')
+        row.operator('hb_frameless.add_countertops', text="Add Countertops", icon='MESH_PLANE').selected_only = False
         row.operator('hb_frameless.remove_countertops', text="", icon='X')
+
+        row = layout.row(align=True)
+        row.scale_y = 1.3
+        row.operator('hb_frameless.add_countertops', text="Add to Selected", icon='RESTRICT_SELECT_OFF').selected_only = True
 
         layout.separator()
 
