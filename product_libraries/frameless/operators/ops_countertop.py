@@ -14,6 +14,18 @@ def get_cabinet_depth(cab_obj):
     return cage.get_input('Dim Y')
 
 
+def get_cabinet_x_range(cab_obj):
+    """Get the (x_start, x_end) range for a cabinet, handling back-side rotation."""
+    cage = hb_types.GeoNodeCage(cab_obj)
+    dim_x = cage.get_input('Dim X')
+    is_back = (abs(cab_obj.rotation_euler.z - math.pi) < 0.1 or 
+               abs(cab_obj.rotation_euler.z + math.pi) < 0.1)
+    if is_back:
+        return (cab_obj.location.x - dim_x, cab_obj.location.x)
+    else:
+        return (cab_obj.location.x, cab_obj.location.x + dim_x)
+
+
 def split_cabinets_at_ranges(wall_obj, cabinets):
     """Split a wall's cabinet list into sub-groups separated by ranges.
     Returns a list of cabinet sub-groups that should each get their own countertop."""
@@ -33,15 +45,13 @@ def split_cabinets_at_ranges(wall_obj, cabinets):
         return [cabinets]
 
     ranges.sort(key=lambda r: r[0])
-    cabinets_sorted = sorted(cabinets, key=lambda c: c.location.x)
+    cabinets_sorted = sorted(cabinets, key=lambda c: get_cabinet_x_range(c)[0])
 
     groups = []
     current_group = []
 
     for cab in cabinets_sorted:
-        cage = hb_types.GeoNodeCage(cab)
-        cab_start = cab.location.x
-        cab_end = cab_start + cage.get_input('Dim X')
+        cab_start, cab_end = get_cabinet_x_range(cab)
         cab_mid = (cab_start + cab_end) / 2
 
         # Check if this cabinet overlaps with any range
@@ -54,9 +64,7 @@ def split_cabinets_at_ranges(wall_obj, cabinets):
         if not overlaps_range:
             # Check if a range sits between this cabinet and the previous one
             if current_group:
-                prev = current_group[-1]
-                prev_cage = hb_types.GeoNodeCage(prev)
-                prev_end = prev.location.x + prev_cage.get_input('Dim X')
+                prev_start, prev_end = get_cabinet_x_range(current_group[-1])
                 for r_start, r_end in ranges:
                     if r_start >= prev_end - 0.01 and r_end <= cab_start + 0.01:
                         # Range is between previous and current cabinet - split here
@@ -155,7 +163,8 @@ def build_wall_runs(wall_cabinets):
 
 def create_wall_countertop(context, wall_obj, cabinets, has_left_conn, has_right_conn):
     """Create a straight rectangular countertop for cabinets on a single wall.
-    Connected ends get no side overhang, exposed ends get overhang."""
+    Connected ends get no side overhang, exposed ends get overhang.
+    Handles both front-side and back-side cabinet placement."""
     main_scene = hb_project.get_main_scene()
     props = main_scene.hb_frameless
 
@@ -164,23 +173,49 @@ def create_wall_countertop(context, wall_obj, cabinets, has_left_conn, has_right
     overhang_back = props.countertop_overhang_back
     thickness = props.countertop_thickness
 
-    cabinets.sort(key=lambda c: c.location.x)
-
+    # Detect if cabinets are on the back side of the wall (rotated 180° around Z)
     first_cab = cabinets[0]
-    last_cab = cabinets[-1]
-    last_cage = hb_types.GeoNodeCage(last_cab)
+    is_back_side = (abs(first_cab.rotation_euler.z - math.pi) < 0.1 or 
+                    abs(first_cab.rotation_euler.z + math.pi) < 0.1)
 
-    start_x = first_cab.location.x
-    end_x = last_cab.location.x + last_cage.get_input('Dim X')
+    if is_back_side:
+        # Back side: location.x is at right edge, cabinet extends left
+        x_ranges = []
+        for cab in cabinets:
+            cage = hb_types.GeoNodeCage(cab)
+            dim_x = cage.get_input('Dim X')
+            x_start = cab.location.x - dim_x
+            x_end = cab.location.x
+            x_ranges.append((x_start, x_end))
+        x_ranges.sort(key=lambda r: r[0])
+        start_x = x_ranges[0][0]
+        end_x = x_ranges[-1][1]
+    else:
+        # Front side: location.x is at left edge, cabinet extends right
+        cabinets.sort(key=lambda c: c.location.x)
+        first_cab = cabinets[0]
+        last_cab = cabinets[-1]
+        last_cage = hb_types.GeoNodeCage(last_cab)
+        start_x = first_cab.location.x
+        end_x = last_cab.location.x + last_cage.get_input('Dim X')
 
     depths = [get_cabinet_depth(c) for c in cabinets]
     max_depth = max(depths) if depths else 0.6
 
-    first_cage = hb_types.GeoNodeCage(first_cab)
+    first_cage = hb_types.GeoNodeCage(cabinets[0])
     cab_height = first_cage.get_input('Dim Z')
 
-    front_y = -(max_depth + overhang_front)
-    back_y = overhang_back
+    if is_back_side:
+        # Back side: cabinet back is at wall_thickness, depth extends in +Y
+        wall_node = hb_types.GeoNodeWall(wall_obj)
+        wall_thickness = wall_node.get_input('Thickness')
+        back_y = wall_thickness - overhang_back
+        front_y = wall_thickness + max_depth + overhang_front
+    else:
+        # Front side: cabinet back at Y=0, depth extends in -Y
+        front_y = -(max_depth + overhang_front)
+        back_y = overhang_back
+
     z_bot = cab_height
     z_top = cab_height + thickness
 
