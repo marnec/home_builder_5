@@ -48,6 +48,9 @@ class HOME_BUILDER_MT_wall_commands(bpy.types.Menu):
         layout.operator("home_builder_walls.show_all_walls", text="Show All Walls", icon='HIDE_OFF')
         layout.separator()
         layout.operator("home_builder_walls.delete_wall", text="Delete Wall", icon='X')
+        layout.separator()
+        layout.operator("hb_frameless.place_snap_line", text="Place Snap Line", icon='SNAP_MIDPOINT')
+        layout.operator("hb_frameless.delete_all_snap_lines", text="Delete All Snap Lines", icon='TRASH')
 
 
 class HOME_BUILDER_MT_door_commands(bpy.types.Menu):

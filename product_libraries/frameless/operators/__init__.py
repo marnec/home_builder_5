@@ -14,6 +14,7 @@ from . import ops_finished_ends
 from . import ops_products
 from . import ops_countertop
 from . import ops_cleanup
+from . import ops_snap_line
 
 
 def register():
@@ -33,6 +34,7 @@ def register():
     ops_products.register()
     ops_countertop.register()
     ops_cleanup.register()
+    ops_snap_line.register()
 
 
 def unregister():
@@ -52,3 +54,4 @@ def unregister():
     ops_products.unregister()
     ops_countertop.unregister()
     ops_cleanup.unregister()
+    ops_snap_line.unregister()

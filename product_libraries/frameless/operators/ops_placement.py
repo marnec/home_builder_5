@@ -1139,6 +1139,9 @@ class hb_frameless_OT_place_cabinet(bpy.types.Operator, WallObjectPlacementMixin
             # Skip dimension annotations (they have IS_2D_ANNOTATION custom property)
             if child.get('IS_2D_ANNOTATION'):
                 continue
+            # Skip snap lines (handled separately as zero-width boundaries)
+            if child.get('IS_SNAP_LINE'):
+                continue
             
             # Doors and windows are obstacles for BOTH sides (they cut through wall)
             is_door_or_window = 'IS_ENTRY_DOOR_BP' in child or 'IS_WINDOW_BP' in child
@@ -1214,6 +1217,15 @@ class hb_frameless_OT_place_cabinet(bpy.types.Operator, WallObjectPlacementMixin
         # Re-sort after adding virtual obstacles
         if left_intrusion > 0 or right_intrusion > 0:
             children = sorted(children, key=lambda x: x[0])
+        
+        # Add snap lines as zero-width obstacles (boundaries)
+        for child in wall_obj.children:
+            if child.get('IS_SNAP_LINE'):
+                snap_x = child.get('SNAP_X_POSITION', child.location.x)
+                children.append((snap_x, snap_x, child))
+        
+        # Re-sort after adding snap lines
+        children = sorted(children, key=lambda x: x[0])
         
         if not children:
             return (0, wall_length, cursor_x)
