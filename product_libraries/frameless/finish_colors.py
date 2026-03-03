@@ -20,7 +20,7 @@ import json
 
 def get_user_data_folder():
     """Get the user data folder for Home Builder 5."""
-    return bpy.utils.extension_path_user(__package__.split('.')[0], path="user_data", create=True)
+    return bpy.utils.extension_path_user('.'.join(__package__.split('.')[:3]), path="user_data", create=True)
 
 
 def get_custom_colors_path():

@@ -10,7 +10,7 @@ from .... import hb_utils, hb_placement, hb_snap, units
 
 def get_user_library_path():
     """Get the default user library path for cabinet groups."""
-    return bpy.utils.extension_path_user(__package__.split('.')[0], path="cabinet_groups", create=True)
+    return bpy.utils.extension_path_user('.'.join(__package__.split('.')[:3]), path="cabinet_groups", create=True)
 
 def get_all_cabinet_group_paths():
     """Get all cabinet group library paths (default + user libraries with cabinet_groups/)."""
