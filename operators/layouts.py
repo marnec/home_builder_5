@@ -20,9 +20,8 @@ from .. import hb_snap
 
 def get_addon_prefs():
     """Get addon preferences for layout defaults."""
-    import os
-    addon_name = os.path.basename(os.path.dirname(os.path.dirname(__file__)))
-    prefs = bpy.context.preferences.addons.get(addon_name)
+    pkg = '.'.join(__package__.split('.')[:3])
+    prefs = bpy.context.preferences.addons.get(pkg)
     if prefs:
         return prefs.preferences
     return None
