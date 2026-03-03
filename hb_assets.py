@@ -174,13 +174,9 @@ class HB_UL_asset_libraries(bpy.types.UIList):
     bl_idname = "HB_UL_asset_libraries"
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            row.prop(item, "name", text="", emboss=False)
-            row.prop(item, "library_path", text="")
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text=item.name)
+        row = layout.row(align=True)
+        row.prop(item, "name", text="", emboss=False)
+        row.prop(item, "library_path", text="")
 
 
 class HB_OT_add_asset_library(bpy.types.Operator):

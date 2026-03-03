@@ -822,29 +822,21 @@ class HB_UL_cabinet_styles(UIList):
     """UIList for displaying cabinet styles."""
     
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            row.prop(item, "name", text="", emboss=False, icon='MATERIAL')
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text=item.name, icon='MATERIAL')
+        row = layout.row(align=True)
+        row.prop(item, "name", text="", emboss=False, icon='MATERIAL')
 
 
 class HB_UL_door_styles(UIList):
     """UIList for displaying door styles."""
     
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            row.prop(item, "name", text="", emboss=False)
-            # Show door type indicator
-            if item.door_type == 'SLAB':
-                row.label(text="", icon='MESH_PLANE')
-            else:
-                row.label(text="", icon='MOD_LATTICE')
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text=item.name, icon='MOD_LATTICE')
+        row = layout.row(align=True)
+        row.prop(item, "name", text="", emboss=False)
+        # Show door type indicator
+        if item.door_type == 'SLAB':
+            row.label(text="", icon='MESH_PLANE')
+        else:
+            row.label(text="", icon='MOD_LATTICE')
 
 
 class Frameless_Door_Style(PropertyGroup):
@@ -1220,11 +1212,7 @@ class Toe_Kick_Detail(PropertyGroup):
 
 class HB_UL_toe_kick_details(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.prop(item, "name", text="", emboss=False, icon='MOD_LINEART')
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon='MOD_LINEART')
+        layout.prop(item, "name", text="", emboss=False, icon='MOD_LINEART')
 
 
 class Upper_Bottom_Detail(PropertyGroup):
@@ -1250,11 +1238,7 @@ class Upper_Bottom_Detail(PropertyGroup):
 
 class HB_UL_upper_bottom_details(UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            layout.prop(item, "name", text="", emboss=False, icon='MOD_LINEART')
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon='MOD_LINEART')
+        layout.prop(item, "name", text="", emboss=False, icon='MOD_LINEART')
 
 
 class HB_MT_crown_detail_library(bpy.types.Menu):
@@ -1297,17 +1281,13 @@ class HB_UL_crown_details(UIList):
     """UIList for displaying crown details."""
     
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-        if self.layout_type in {'DEFAULT', 'COMPACT'}:
-            row = layout.row(align=True)
-            row.prop(item, "name", text="", emboss=False, icon='MOD_SIMPLEDEFORM')
-            # Show if scene exists
-            if item.get_detail_scene():
-                row.label(text="", icon='CHECKMARK')
-            else:
-                row.label(text="", icon='ERROR')
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text=item.name, icon='MOD_SIMPLEDEFORM')
+        row = layout.row(align=True)
+        row.prop(item, "name", text="", emboss=False, icon='MOD_SIMPLEDEFORM')
+        # Show if scene exists
+        if item.get_detail_scene():
+            row.label(text="", icon='CHECKMARK')
+        else:
+            row.label(text="", icon='ERROR')
 
 
 class Frameless_Scene_Props(PropertyGroup):   
