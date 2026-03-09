@@ -90,8 +90,12 @@ class HOME_BUILDER_PT_project(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        project = hb_project.get_project_props(context)
-        
+        main = hb_project.get_main_scene(context, create_tag=False)
+        if not main:
+            layout.label(text="No project scene found")
+            return
+        project = main.hb_project
+
         # Project name prominently displayed
         row = layout.row()
         row.scale_y = 1.2
@@ -109,8 +113,11 @@ class HOME_BUILDER_PT_project_info(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-        project = hb_project.get_project_props(context)
-        
+        main = hb_project.get_main_scene(context, create_tag=False)
+        if not main:
+            return
+        project = main.hb_project
+
         col = layout.column()
         col.use_property_split = True
         col.use_property_decorate = False
